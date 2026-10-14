@@ -45,6 +45,17 @@ def take_config(name, required=False):
     else:
         return None
 
+
+def multiplayer_url():
+    # RENDER_EXTERNAL_URL (wired via the MULTIPLAYER_URL env var in render.yaml)
+    # takes precedence over config.py; http(s) values are converted to ws(s).
+    url = os.environ.get('MULTIPLAYER_URL') or take_config('MULTIPLAYER_URL')
+    if url and url.startswith('https://'):
+        return 'wss://' + url[len('https://'):]
+    if url and url.startswith('http://'):
+        return 'ws://' + url[len('http://'):]
+    return url
+
 app = Flask(__name__)
 client = MongoClient(host=os.environ.get("TAIKO_WEB_MONGO_HOST") or take_config('MONGO', required=True)['host'])
 basedir = take_config('BASEDIR') or '/'
@@ -158,7 +169,7 @@ def get_config(credentials=False):
         'custom_js': take_config('CUSTOM_JS'),
         'plugins': take_config('PLUGINS') and [x for x in take_config('PLUGINS') if x['url']],
         'preview_type': take_config('PREVIEW_TYPE') or 'mp3',
-        'multiplayer_url': take_config('MULTIPLAYER_URL')
+        'multiplayer_url': multiplayer_url()
     }
     relative_urls = ['songs_baseurl', 'assets_baseurl']
     for name in relative_urls:

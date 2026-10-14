@@ -2,18 +2,23 @@ class Controller{
 	constructor(...args){
 		this.init(...args)
 	}
-	init(selectedSong, songData, autoPlayEnabled, multiplayer, touchEnabled, baisoku = 1){
+	init(selectedSong, songData, autoPlayEnabled, multiplayer, touchEnabled, baisoku = 1, seat){
 		this.selectedSong = selectedSong
 		this.songData = songData
 		this.autoPlayEnabled = autoPlayEnabled
 		this.saveScore = !autoPlayEnabled
 		this.multiplayer = multiplayer
 		this.touchEnabled = touchEnabled
+		this.mirrors = []
 		if(multiplayer === 2){
-			this.snd = p2.player === 2 ? "_p1" : "_p2"
-			this.don = p2.don || defaultDon
+			this.seat = seat
+			var peer = p2.getPeer(seat)
+			this.peer = peer || null
+			this.snd = "_p" + (((seat - 1) % 2) + 1)
+			this.don = (peer && peer.don) || defaultDon
 		}else{
-			this.snd = multiplayer ? "_p" + p2.player : ""
+			this.seat = multiplayer ? p2.player : 1
+			this.snd = multiplayer ? "_p" + (((p2.player - 1) % 2) + 1) : ""
 			this.don = account.loggedIn ? account.don : defaultDon
 		}
 		if(this.snd === "_p2" && this.objEqual(defaultDon, this.don)){
@@ -97,9 +102,9 @@ class Controller{
 		this.drumSounds = settings.getItem("latency").drumSounds
 		this.playedSounds = {}
 	}
-	run(syncWith){
-		if(syncWith){
-			this.syncWith = syncWith
+	run(mirrors){
+		if(mirrors){
+			this.mirrors = mirrors
 		}
 		if(this.multiplayer !== 2){
 			snd.musicGain.setVolumeMul(this.volume)
@@ -107,9 +112,11 @@ class Controller{
 		this.game.run()
 		this.view.run()
 		if(this.multiplayer === 1){
-			syncWith.run(this)
-			syncWith.game.elapsedTime = this.game.elapsedTime
-			syncWith.game.startDate = this.game.startDate
+			this.mirrors.forEach(mirror => {
+				mirror.run()
+				mirror.game.elapsedTime = this.game.elapsedTime
+				mirror.game.startDate = this.game.startDate
+			})
 		}
 		requestAnimationFrame(() => {
 			this.startMainLoop()
@@ -147,8 +154,10 @@ class Controller{
 	gameLoop(){
 		if(this.mainLoopRunning){
 			if(this.multiplayer === 1){
-				this.syncWith.game.elapsedTime = this.game.elapsedTime
-				this.syncWith.game.startDate = this.game.startDate
+				this.mirrors.forEach(mirror => {
+					mirror.game.elapsedTime = this.game.elapsedTime
+					mirror.game.startDate = this.game.startDate
+				})
 			}
 			var ms = this.game.elapsedTime
 			
@@ -174,7 +183,7 @@ class Controller{
 				}
 			}
 			if(this.multiplayer === 1){
-				this.syncWith.gameLoop()
+				this.mirrors.forEach(mirror => mirror.gameLoop())
 			}
 		}
 	}
@@ -182,16 +191,19 @@ class Controller{
 		if(this.mainLoopRunning){
 			if(this.multiplayer !== 2){
 				requestAnimationFrame(() => {
-					var player = this.multiplayer ? p2.player : 1
-					if(player === 1){
-						this.viewLoop()
-					}
-					if(this.multiplayer === 1){
-						this.syncWith.viewLoop()
-					}
-					if(player === 2){
-						this.viewLoop()
-					}
+					var lower = this.mirrors.filter(mirror => (mirror.seat || 0) < (this.seat || 0))
+					var higher = this.mirrors.filter(mirror => (mirror.seat || 0) > (this.seat || 0))
+					lower.forEach(mirror => {
+						if(mirror.mainLoopRunning){
+							mirror.view.refresh()
+						}
+					})
+					this.viewLoop()
+					higher.forEach(mirror => {
+						if(mirror.mainLoopRunning){
+							mirror.view.refresh()
+						}
+					})
 					if(this.scoresheet){
 						if(this.view.ctx){
 							this.view.ctx.save()
@@ -322,7 +334,9 @@ class Controller{
 	}
 	togglePause(forcePause, pauseMove, noSound){
 		if(this.multiplayer === 1){
-			this.syncWith.game.togglePause(forcePause, pauseMove, noSound)
+			this.mirrors.forEach(mirror => {
+				mirror.game.togglePause(forcePause, pauseMove, noSound)
+			})
 		}
 		this.game.togglePause(forcePause, pauseMove, noSound)
 	}
@@ -358,7 +372,7 @@ class Controller{
 	}
 	autoPlay(circle){
 		if(this.multiplayer){
-			p2.play(circle, this.mekadon)
+			p2.play(circle, this.mekadon, this.seat)
 		}else{
 			return this.mekadon.play(circle)
 		}
@@ -374,7 +388,9 @@ class Controller{
 	clean(){
 		this.cleaned = true
 		if(this.multiplayer === 1){
-			this.syncWith.clean()
+			this.mirrors.forEach(mirror => {
+				mirror.clean()
+			})
 		}
 		this.stopMainLoop()
 		this.keyboard.clean()

@@ -290,40 +290,50 @@ class LoadSong{
 			this.cancelButton.style.display = "inline-block"
 			pageEvents.add(this.cancelButton, ["mousedown", "touchstart"], this.cancelLoad.bind(this))
 			
-			this.song2Data = this.songData
-			this.selectedSong2 = song
+			this.peerData = {}
 			pageEvents.add(p2, "message", event => {
 				if(event.type === "gameload"){
 					this.cancelButton.style.display = ""
 					
-					if(event.value.diff === song.difficulty){
-						this.startMultiplayer()
-					}else{
-						this.selectedSong2 = {}
-						for(var i in this.selectedSong){
-							this.selectedSong2[i] = this.selectedSong[i]
+					var peers = event.value && Array.isArray(event.value.players) ? event.value.players : []
+					var diffCache = {}
+					var loadPromises = []
+					peers.forEach(entry => {
+						if(!diffCache.hasOwnProperty(entry.diff)){
+							diffCache[entry.diff] = this.loadDiffData(entry.diff)
 						}
-						this.selectedSong2.difficulty = event.value.diff
-						var chart = this.songObj.chart
-						var chartDiff = this.selectedSong2.difficulty
-						if(song.type === "tja" || !chart || !chart.separateDiff || !chart[chartDiff]){
+						loadPromises.push(diffCache[entry.diff].then(data => {
+							var selectedSong2 = {}
+							for(var i in song){
+								selectedSong2[i] = song[i]
+							}
+							if(entry.diff !== song.difficulty){
+								selectedSong2.difficulty = entry.diff
+							}
+							this.peerData[entry.player] = {
+								selectedSong: selectedSong2,
+								songData: data
+							}
+						}))
+					})
+					Promise.all(loadPromises).then(() => {
+						if(!this.error){
 							this.startMultiplayer()
-						}else{
-							chart[chartDiff].read(song.type === "tja" ? "utf-8" : "").then(data => {
-								this.song2Data = data.replace(/\0/g, "").split("\n")
-							}, () => {}).then(() => {
-								this.startMultiplayer()
-							})
 						}
-					}
+					})
 				}else if(event.type === "gamestart"){
+					var peerData = this.peerData
 					this.clean()
 					p2.clearMessage("songsel")
-					var taikoGame1 = new Controller(song, this.songData, false, 1, this.touchEnabled, this.baisoku)
-					var taikoGame2 = new Controller(this.selectedSong2, this.song2Data, true, 2, this.touchEnabled, this.baisoku)
-					taikoGame1.run(taikoGame2)
-					pageEvents.send("load-song-player2", this.selectedSong2)
-				}else if(event.type === "left" || event.type === "gameend"){
+					// local controller first: it injects the game page (canvas) the mirrors draw on
+					var taikoGame1 = new Controller(song, this.songData, false, 1, this.touchEnabled, this.baisoku, p2.player)
+					var mirrors = p2.peerSeats().map(seat => {
+						var data = peerData[seat] || {selectedSong: song, songData: this.songData}
+						return new Controller(data.selectedSong, data.songData, true, 2, this.touchEnabled, this.baisoku, seat)
+					})
+					taikoGame1.run(mirrors)
+					pageEvents.send("load-song-player2", mirrors.length ? mirrors[0].selectedSong : song)
+				}else if(event.type === "left" || event.type === "gameend" || event.type === "loadcancel"){
 					this.clean()
 					new SongSelect(false, false, this.touchEnabled)
 				}
@@ -339,6 +349,21 @@ class LoadSong{
 			var taikoGame = new Controller(song, this.songData, this.autoPlayEnabled, false, this.touchEnabled, this.baisoku)
 			taikoGame.run()
 		}
+	}
+	loadDiffData(diff){
+		var song = this.selectedSong
+		if(diff === song.difficulty){
+			return Promise.resolve(this.songData)
+		}
+		var chart = this.songObj.chart
+		if(song.type === "tja" || !chart || !chart.separateDiff || !chart[diff]){
+			return Promise.resolve(this.songData)
+		}
+		return chart[diff].read(song.type === "tja" ? "utf-8" : "").then(data => {
+			return data.replace(/\0/g, "").split("\n")
+		}, () => {
+			return this.songData
+		})
 	}
 	startMultiplayer(repeat){
 		if(document.hasFocus()){

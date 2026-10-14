@@ -57,11 +57,14 @@ class Game{
 		}else{
 			var offsetTime = Math.max(0, this.timeForDistanceCircle - (firstCircle ? firstCircle.ms : 0)) |0
 		}
-		if(this.controller.multiplayer){
-			var syncWith = this.controller.syncWith
-			var syncCircles = syncWith.game.songData.circles
-			var syncOffsetTime = Math.max(0, this.timeForDistanceCircle - syncCircles[0].ms) |0
-			offsetTime = Math.max(offsetTime, syncOffsetTime)
+		if(this.controller.multiplayer === 1){
+			this.controller.mirrors.forEach(mirror => {
+				var syncCircles = mirror.game.songData.circles
+				if(syncCircles[0]){
+					var syncOffsetTime = Math.max(0, this.timeForDistanceCircle - syncCircles[0].ms) |0
+					offsetTime = Math.max(offsetTime, syncOffsetTime)
+				}
+			})
 		}
 		this.elapsedTime = -offsetTime
 		// The real start for the game will start when chrono will reach 0
@@ -140,7 +143,11 @@ class Game{
 		
 		var branches = this.songData.branches
 		if(branches){
-			var force = this.controller.multiplayer === 2 ? p2 : this
+			if(this.controller.multiplayer === 2 && !this.controller.peer){
+				var force = {branch: "normal", branchSet: true}
+			}else{
+				var force = this.controller.multiplayer === 2 ? this.controller.peer : this
+			}
 			var measures = this.songData.measures
 			if(this.controller.multiplayer === 2 || force.branch){
 				if(!force.branchSet){
@@ -259,7 +266,8 @@ class Game{
 		this.updateGlobalScore(0, 1)
 		if(this.controller.multiplayer === 1){
 			p2.send("note", {
-				score: -1
+				score: -1,
+				at: circle.ms
 			})
 		}
 	}
@@ -396,7 +404,8 @@ class Game{
 				var value = {
 					score: score,
 					ms: circle.ms - currentTime - this.controller.audioLatency,
-					dai: typeDai ? (keyDai ? 2 : 1) : 0
+					dai: typeDai ? (keyDai ? 2 : 1) : 0,
+					at: circle.ms
 				}
 				if((!keysDon || !typeDon) && (!keysKa || !typeKa)){
 					value.reverse = true
@@ -483,20 +492,23 @@ class Game{
 			var circles = this.songData.circles
 			var circle = this.getLastCircle(circles)
 			this.lastCircle = circle ? circle.endTime : 0
-			if(this.controller.multiplayer){
-				var syncWith = this.controller.syncWith
-				var syncCircles = syncWith.game.songData.circles
-				circle = this.getLastCircle(syncCircles)
-				var syncLastCircle = circle ? circle.endTime : 0
-				if(syncLastCircle > this.lastCircle){
-					this.lastCircle = syncLastCircle
-				}
+			if(this.controller.multiplayer === 1){
+				this.controller.mirrors.forEach(mirror => {
+					var syncCircles = mirror.game.songData.circles
+					circle = this.getLastCircle(syncCircles)
+					var syncLastCircle = circle ? circle.endTime : 0
+					if(syncLastCircle > this.lastCircle){
+						this.lastCircle = syncLastCircle
+					}
+				})
 			}
 		}
 		if(!this.fadeOutStarted && ms >= this.lastCircle + 2000 + this.controller.audioLatency){
 			this.fadeOutStarted = ms
-			if(this.controller.multiplayer){
-				this.controller.syncWith.game.fadeOutStarted = ms
+			if(this.controller.multiplayer === 1){
+				this.controller.mirrors.forEach(mirror => {
+					mirror.game.fadeOutStarted = ms
+				})
 			}
 		}
 	}

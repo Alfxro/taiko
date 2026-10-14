@@ -17,6 +17,17 @@
 	height: 100%;
 	touch-action: none;
 }
+#game .lane-canvas{
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 1;
+	touch-action: none;
+	background: #000;
+}
+.multiplayer #canvas{
+	display: none;
+}
 #touch-drum{
 	display: none;
 	position: absolute;
@@ -128,6 +139,7 @@
 	line-height: 1;
 }
 .pixelated #canvas,
+.pixelated .lane-canvas,
 .pixelated .donbg>div,
 .pixelated #songbg>div,
 .pixelated #song-stage,

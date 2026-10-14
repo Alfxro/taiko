@@ -8,7 +8,8 @@ ASSETS_BASEURL = '/assets/'
 SONGS_BASEURL = '/songs/'
 
 # Multiplayer websocket URL. Defaults to /p2 if blank.
-MULTIPLAYER_URL = ''
+# Local dev: the Flask app cannot serve websockets, so point at server.py directly.
+MULTIPLAYER_URL = 'ws://localhost:34802'
 
 # Send static files for custom error pages
 ERROR_PAGES = {
@@ -36,18 +37,13 @@ PREVIEW_TYPE = 'mp3'
 
 # MongoDB server settings.
 MONGO = {
-    'host': ['127.0.0.1:27017'],
+    'host': 'mongodb+srv://alfaroeacr_db_user:t2VxnuXFGeQbnBrQ@taiko-cluster.wlgzxhc.mongodb.net/?appName=taiko-cluster',
     'database': 'taiko'
 }
 
 # Redis server settings, used for sessions + cache.
-REDIS = {
-    'CACHE_TYPE': 'redis',
-    'CACHE_REDIS_HOST': '127.0.0.1',
-    'CACHE_REDIS_PORT': 6379,
-    'CACHE_REDIS_PASSWORD': None,
-    'CACHE_REDIS_DB': None
-}
+# Set to a dict (see config.example.py) to use Redis; None = filesystem sessions + in-memory cache.
+REDIS = None
 
 # Secret key used for sessions.
 SECRET_KEY = 'change-me'

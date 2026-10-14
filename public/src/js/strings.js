@@ -610,11 +610,11 @@ var translations = {
 			ko: "멀티플레이어 세션"
 		},
 		linkTutorial: {
-			ja: "このリンクをお友達とシェアして、一緒にプレイを始めて。相手が参加するまで、この画面を離れないでください。",
-			en: "Share this link with your friend to start playing together! Do not leave this screen while they join.",
-			cn: "复制下方地址，给你的朋友即可开始一起游戏！当他们与您联系之前，请不要离开此页面。",
-			tw: "分享下方網址給你的朋友即可開始一起遊戲！在他們加入時，請不要離開此頁面。",
-			ko: "링크를 공유하여 친구와 플레이하세요! 친구가 입장하기 전에 페이지를 나가지 말아주세요."
+			ja: "このリンクをお友達とシェアして、一緒にプレイを始めて。全員が参加したら「ゲーム開始」を押してください。",
+			en: "Share this link with your friends to play together! When everyone has joined, press Start Game.",
+			cn: "复制下方地址，给你的朋友即可开始一起游戏！所有人都加入后，请点击“开始游戏”。",
+			tw: "分享下方網址給你的朋友即可開始一起遊戲！全部人加入後，請點擊「開始遊戲」。",
+			ko: "링크를 공유하여 친구와 플레이하세요! 모두 입장하면 '게임 시작'을 누르세요."
 		},
 		cancel: {
 			ja: "キャンセル",
@@ -622,6 +622,13 @@ var translations = {
 			cn: "取消",
 			tw: "取消",
 			ko: "취소"
+		},
+		startGame: {
+			ja: "ゲーム開始",
+			en: "Start Game",
+			cn: "开始游戏",
+			tw: "開始遊戲",
+			ko: "게임 시작"
 		}
 	},
 	settings: {

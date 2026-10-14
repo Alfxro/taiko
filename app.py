@@ -50,16 +50,21 @@ client = MongoClient(host=os.environ.get("TAIKO_WEB_MONGO_HOST") or take_config(
 basedir = take_config('BASEDIR') or '/'
 
 app.secret_key = take_config('SECRET_KEY') or 'change-me'
-app.config['SESSION_TYPE'] = 'redis'
-redis_config = take_config('REDIS', required=True)
-redis_config['CACHE_REDIS_HOST'] = os.environ.get("TAIKO_WEB_REDIS_HOST") or redis_config['CACHE_REDIS_HOST']
-app.config['SESSION_REDIS'] = Redis(
-    host=redis_config['CACHE_REDIS_HOST'],
-    port=redis_config['CACHE_REDIS_PORT'],
-    password=redis_config['CACHE_REDIS_PASSWORD'],
-    db=redis_config['CACHE_REDIS_DB']
-)
-app.cache = Cache(app, config=redis_config)
+redis_config = take_config('REDIS')
+if redis_config:
+    app.config['SESSION_TYPE'] = 'redis'
+    redis_config['CACHE_REDIS_HOST'] = os.environ.get("TAIKO_WEB_REDIS_HOST") or redis_config['CACHE_REDIS_HOST']
+    app.config['SESSION_REDIS'] = Redis(
+        host=redis_config['CACHE_REDIS_HOST'],
+        port=redis_config['CACHE_REDIS_PORT'],
+        password=redis_config['CACHE_REDIS_PASSWORD'],
+        db=redis_config['CACHE_REDIS_DB']
+    )
+    app.cache = Cache(app, config=redis_config)
+else:
+    # Local dev without Redis: filesystem sessions + in-memory cache
+    app.config['SESSION_TYPE'] = 'filesystem'
+    app.cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache'})
 sess = Session()
 sess.init_app(app)
 #csrf = CSRFProtect(app)
@@ -194,6 +199,18 @@ def get_version():
         for key in version.keys():
             if ver.get(key):
                 version[key] = ver.get(key)
+
+    if not version['commit_short']:
+        # No version.json (local dev): bust browser caches whenever sources change
+        newest = 0
+        for root in ('public/src', 'templates'):
+            for dirpath, _, files in os.walk(root):
+                for name in files:
+                    try:
+                        newest = max(newest, os.path.getmtime(os.path.join(dirpath, name)))
+                    except OSError:
+                        pass
+        version['commit_short'] = format(int(newest), 'x')
 
     return version
 
@@ -457,24 +474,36 @@ def route_api_preview():
 @app.cache.cached(timeout=15)
 def route_api_songs():
     songs = list(db.songs.find({'enabled': True}, {'_id': False, 'enabled': False}))
+    # Bulk-fetch referenced docs once: per-song lookups are far too slow
+    # against a remote database (thousands of round-trips).
+    maker_ids = set(s['maker_id'] for s in songs if s.get('maker_id'))
+    makers = {m['id']: m for m in db.makers.find({'id': {'$in': list(maker_ids)}}, {'_id': False})} if maker_ids else {}
+    cat_ids = set(s['category_id'] for s in songs if s.get('category_id'))
+    cats = {c['id']: c.get('title') for c in db.categories.find({'id': {'$in': list(cat_ids)}}, {'id': True, 'title': True, '_id': False})} if cat_ids else {}
+    skin_ids = set(s['skin_id'] for s in songs if s.get('skin_id'))
+    skins = {}
+    if skin_ids:
+        for sk in db.song_skins.find({'id': {'$in': list(skin_ids)}}, {'_id': False}):
+            skins[sk['id']] = {k: v for k, v in sk.items() if k != 'id'}
+
     for song in songs:
         if song['maker_id']:
             if song['maker_id'] == 0:
                 song['maker'] = 0
             else:
-                song['maker'] = db.makers.find_one({'id': song['maker_id']}, {'_id': False})
+                song['maker'] = makers.get(song['maker_id'])
         else:
             song['maker'] = None
         del song['maker_id']
 
         if song['category_id']:
-            song['category'] = db.categories.find_one({'id': song['category_id']})['title']
+            song['category'] = cats.get(song['category_id'])
         else:
             song['category'] = None
         #del song['category_id']
 
         if song['skin_id']:
-            song['song_skin'] = db.song_skins.find_one({'id': song['skin_id']}, {'_id': False, 'id': False})
+            song['song_skin'] = skins.get(song['skin_id'])
         else:
             song['song_skin'] = None
         del song['skin_id']

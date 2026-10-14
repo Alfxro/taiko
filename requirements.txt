@@ -11,4 +11,3 @@ redis==5.0.6
 requests==2.32.3
 websockets==12.0
 nkf==1.0.4
-git+https://github.com/yuukiwww/tjaf.git@ebe79e3696d4e1ce0fcdae9e4164e7fd6288b22a

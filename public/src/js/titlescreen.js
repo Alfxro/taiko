@@ -55,6 +55,10 @@ class Titlescreen{
 	
 	onPressed(pressed, name){
 		if(pressed){
+			if(p2.session){
+				// joiners wait for the host to start the session
+				return
+			}
 			if(name === "gamepadConfirm" && (snd.buffer.context.state === "suspended" || this.customFolder)){
 				return
 			}

@@ -1672,7 +1672,8 @@ class SongSelect{
 									font: this.font,
 									x: _x,
 									y: _y - 45,
-									two: p2.session && p2.player === 2
+									two: p2.session && p2.player % 2 === 0,
+									label: p2.session ? p2.player + "P" : "1P"
 								})
 							}
 						}
@@ -1681,31 +1682,27 @@ class SongSelect{
 				var drawDifficulty = (ctx, i, currentUra) => {
 					if(currentSong.courses[this.difficultyId[i]] || currentUra){
 						var crownDiff = currentUra ? "ura" : this.difficultyId[i]
-						var players = p2.session ? 2 : 1
-						var score = [scoreStorage.get(currentSong.hash, false, true)]
-						if(p2.session){
-							score[p2.player === 1 ? "push" : "unshift"](scoreStorage.getP2(currentSong.hash, false, true))
-						}
-						var reversed = false
-						for(var a = players; a--;){
+						var allSeats = this.getSessionSeats()
+						var players = allSeats.length
+						var score = allSeats.map(seat => {
+							return seat === p2.player
+								? scoreStorage.get(currentSong.hash, false, true)
+								: scoreStorage.getP2(currentSong.hash, false, true, seat)
+						})
+						var crownStep = players === 2 ? 26 : 14
+						for(var p = 0; p < players; p++){
 							var crownType = ""
-							var p = reversed ? -(a - 1) : a
 							if(score[p] && score[p][crownDiff]){
 								crownType = score[p][crownDiff].crown
 							}
-							if(!reversed && players === 2 && p === 1 && crownType){
-								reversed = true
-								a++
-							}else{
-								this.draw.crown({
-									ctx: ctx,
-									type: crownType,
-									x: (songSel ? x + 33 + i * 60 : x + 402 + i * 100) + (players === 2 ? p === 0 ? -13 : 13 : 0),
-									y: songSel ? y + 75 : y + 30,
-									scale: 0.25,
-									ratio: this.ratio / this.pixelRatio
-								})
-							}
+							this.draw.crown({
+								ctx: ctx,
+								type: crownType,
+								x: (songSel ? x + 33 + i * 60 : x + 402 + i * 100) + (p - (players - 1) / 2) * crownStep,
+								y: songSel ? y + 75 : y + 30,
+								scale: 0.25,
+								ratio: this.ratio / this.pixelRatio
+							})
 						}
 						if(songSel && !this.state.move){
 							var _x = x + 33 + i * 60
@@ -1831,16 +1828,17 @@ class SongSelect{
 							}else if(currentDiff === i){
 								highlight = 1
 							}
-							if(currentDiff === i && !this.touchEnabled){
-								this.draw.diffCursor({
-									ctx: ctx,
-									font: this.font,
-									x: _x,
-									y: _y - 65,
-									side: currentSong.p2Cursor === currentDiff && p2.socket.readyState === 1,
-									two: p2.session && p2.player === 2
-								})
-							}
+						if(currentDiff === i && !this.touchEnabled){
+							this.draw.diffCursor({
+								ctx: ctx,
+								font: this.font,
+								x: _x,
+								y: _y - 65,
+								side: this.hasPeerOn(currentSong, currentDiff) && p2.socket.readyState === 1,
+								two: p2.session && p2.player % 2 === 0,
+								label: p2.session ? p2.player + "P" : "1P"
+							})
+						}
 							if(highlight){
 								this.draw.highlight({
 									ctx: ctx,
@@ -1879,9 +1877,11 @@ class SongSelect{
 						drawDifficulty(ctx, i, currentUra)
 					}
 				}
-				for(var i = 0; currentSong.courses && i < 4; i++){
-					if(!songSel && i === currentSong.p2Cursor && p2.socket.readyState === 1){
-						var _x = x + 402 + i * 100
+				var peerCursors = this.getPeerCursorList(currentSong)
+				for(var c = 0; c < peerCursors.length; c++){
+					var peerCursor = peerCursors[c]
+					if(!songSel && p2.socket.readyState === 1){
+						var _x = x + 402 + peerCursor.diff * 100
 						var _y = y + 87
 						var currentDiff = this.selectedDiff - this.diffOptions.length
 						if(this.selectedDiff === 4 + this.diffOptions.length){
@@ -1892,8 +1892,9 @@ class SongSelect{
 							font: this.font,
 							x: _x,
 							y: _y - 65,
-							two: !p2.session || p2.player === 1,
-							side: currentSong.p2Cursor === currentDiff,
+							two: peerCursor.seat === 0 || peerCursor.seat % 2 === 0,
+							label: peerCursor.seat === 0 ? "2P" : peerCursor.seat + "P",
+							side: peerCursor.diff === currentDiff,
 							scale: 1
 						})
 					}
@@ -2055,17 +2056,20 @@ class SongSelect{
 					}
 				}
 				
-				for(var i = 0; currentSong.courses && i < 4; i++){
-					if(currentSong.courses[this.difficultyId[i]] || currentUra){
-						if(songSel && i === currentSong.p2Cursor && p2.socket.readyState === 1){
-							var _x = x + 33 + i * 60
+				var songCursors = this.getPeerCursorList(currentSong)
+				for(var c = 0; c < songCursors.length; c++){
+					var songCursor = songCursors[c]
+					if(currentSong.courses[this.difficultyId[songCursor.diff]] || (songCursor.diff === 3 && currentUra)){
+						if(songSel && p2.socket.readyState === 1){
+							var _x = x + 33 + songCursor.diff * 60
 							var _y = y + 120
 							this.draw.diffCursor({
 								ctx: ctx,
 								font: this.font,
 								x: _x,
 								y: _y - 45,
-								two: !p2.session || p2.player === 1,
+								two: songCursor.seat === 0 || songCursor.seat % 2 === 0,
+								label: songCursor.seat === 0 ? "2P" : songCursor.seat + "P",
 								side: false,
 								scale: 0.7
 							})
@@ -2191,30 +2195,38 @@ class SongSelect{
 		ctx.lineTo(x + w - 4, y + 4)
 		ctx.fill()
 		
-		if(!p2.session || p2.player === 1){
+		var sessionCount = p2.session ? this.getSessionSeats().length : 1
+		if(!p2.session){
 			var name = account.loggedIn ? account.displayName : strings.defaultName
-			var rank = account.loggedIn || !gameConfig.accounts || p2.session ? false : strings.notLoggedIn
+			var rank = account.loggedIn || !gameConfig.accounts ? false : strings.notLoggedIn
 		}else{
-			var name = p2.name || strings.defaultName
+			var name = this.getSeatName(1)
 			var rank = false
 		}
-		this.nameplateCache.get({
-			ctx: ctx,
-			x: frameLeft + 60,
-			y: frameTop + 640,
-			w: 273,
-			h: 66,
-			id: "1p" + name + "\n" + rank,
-		}, ctx => {
-			this.draw.nameplate({
+		if(p2.session && sessionCount > 2){
+			this.drawSeatNameplate(ctx, 1, frameLeft + 45, frameTop + 645, 0.62, false, false)
+			if(this.getSessionSeats().indexOf(3) > -1){
+				this.drawSeatNameplate(ctx, 3, frameLeft + 235, frameTop + 645, 0.62, false, false)
+			}
+		}else{
+			this.nameplateCache.get({
 				ctx: ctx,
-				x: 3,
-				y: 3,
-				name: name,
-				rank: rank,
-				font: this.font
+				x: frameLeft + 60,
+				y: frameTop + 640,
+				w: 273,
+				h: 66,
+				id: "1p" + name + "\n" + rank,
+			}, ctx => {
+				this.draw.nameplate({
+					ctx: ctx,
+					x: 3,
+					y: 3,
+					name: name,
+					rank: rank,
+					font: this.font
+				})
 			})
-		})
+		}
 		if(this.state.moveHover === "account"){
 			this.draw.highlight({
 				ctx: ctx,
@@ -2347,28 +2359,31 @@ class SongSelect{
 			}
 		}
 		if(p2.session){
-			if(p2.player === 1){
-				var name = p2.name || strings.default2PName
+			if(sessionCount > 2){
+				this.drawSeatNameplate(ctx, 2, frameLeft + 860, frameTop + 645, 0.62, true, false)
+				if(this.getSessionSeats().indexOf(4) > -1){
+					this.drawSeatNameplate(ctx, 4, frameLeft + 1045, frameTop + 645, 0.62, true, false)
+				}
 			}else{
-				var name = account.loggedIn ? account.displayName : strings.default2PName
-			}
-			this.nameplateCache.get({
-				ctx: ctx,
-				x: frameLeft + 949,
-				y: frameTop + 640,
-				w: 273,
-				h: 66,
-				id: "2p" + name,
-			}, ctx => {
-				this.draw.nameplate({
+				var name = this.getSeatName(2)
+				this.nameplateCache.get({
 					ctx: ctx,
-					x: 3,
-					y: 3,
-					name: name,
-					font: this.font,
-					blue: true
+					x: frameLeft + 949,
+					y: frameTop + 640,
+					w: 273,
+					h: 66,
+					id: "2p" + name,
+				}, ctx => {
+					this.draw.nameplate({
+						ctx: ctx,
+						x: 3,
+						y: 3,
+						name: name,
+						font: this.font,
+						blue: true
+					})
 				})
-			})
+			}
 		}
 		
 		if(this.state.showWarning){
@@ -2554,27 +2569,35 @@ class SongSelect{
 		}
 		this.draw.songFrame(config)
 		if("p2Cursor" in config.song && config.song.p2Cursor !== null && p2.socket.readyState === 1){
-			this.draw.diffCursor({
-				ctx: ctx,
-				font: this.font,
-				x: config.x + 48,
-				y: config.y - 27,
-				two: true,
-				scale: 1,
-				side: true
-			})
+			var frameCursors = this.getPeerCursorList(config.song)
+			for(var c = 0; c < frameCursors.length; c++){
+				var frameCursor = frameCursors[c]
+				this.draw.diffCursor({
+					ctx: ctx,
+					font: this.font,
+					x: config.x + 48 + (c - (frameCursors.length - 1) / 2) * 34,
+					y: config.y - 27,
+					two: frameCursor.seat === 0 || frameCursor.seat % 2 === 0,
+					label: frameCursor.seat === 0 ? "2P" : frameCursor.seat + "P",
+					scale: 1,
+					side: true
+				})
+			}
 		}
 	}
 	
 	drawSongCrown(config){
 		if(!config.song.action && config.song.hash){
 			var ctx = config.ctx
-			var players = p2.session ? 2 : 1
-			var score = [scoreStorage.get(config.song.hash, false, true)]
+			var allSeats = this.getSessionSeats()
+			var players = allSeats.length
+			var score = allSeats.map(seat => {
+				return seat === p2.player
+					? scoreStorage.get(config.song.hash, false, true)
+					: scoreStorage.getP2(config.song.hash, false, true, seat)
+			})
 			var scoreDrawn = []
-			if(p2.session){
-				score[p2.player === 1 ? "push" : "unshift"](scoreStorage.getP2(config.song.hash, false, true))
-			}
+			var crownStep = players === 2 ? 26 : 14
 			for(var i = this.difficultyId.length; i--;){
 				var diff = this.difficultyId[i]
 				for(var p = players; p--;){
@@ -2582,10 +2605,11 @@ class SongSelect{
 						continue
 					}
 					if(config.song.courses[this.difficultyId[i]] && score[p][diff] && score[p][diff].crown){
+						var crownOffset = (p - (players - 1) / 2) * crownStep
 						this.draw.crown({
 							ctx: ctx,
 							type: score[p][diff].crown,
-							x: (config.x + this.songAsset.width / 2) + (players === 2 ? p === 0 ? -13 : 13 : 0),
+							x: (config.x + this.songAsset.width / 2) + crownOffset,
 							y: config.y - 13,
 							scale: 0.3,
 							ratio: this.ratio / this.pixelRatio
@@ -2593,7 +2617,7 @@ class SongSelect{
 						this.draw.diffIcon({
 							ctx: ctx,
 							diff: i,
-							x: (config.x + this.songAsset.width / 2 + 8) + (players === 2 ? p === 0 ? -13 : 13 : 0),
+							x: (config.x + this.songAsset.width / 2 + 8) + crownOffset,
 							y: config.y - 8,
 							scale: diff === "hard" || diff === "normal" ? 0.45 : 0.5,
 							border: 6.5,
@@ -2771,6 +2795,7 @@ class SongSelect{
 		var p2InSong = false
 		this.songs.forEach(song => {
 			song.p2Cursor = null
+			song.p2Cursors = {}
 		})
 		if(response && response.value){
 			response.value.forEach(idDiff => {
@@ -2787,12 +2812,21 @@ class SongSelect{
 						return song.id === id
 					})
 					if(currentSong){
-						currentSong.p2Cursor = diffId
+						var seat = typeof idDiff.player === "number" ? idDiff.player : p2.primarySeat()
+						if(seat === null){
+							seat = 0
+						}
+						if(seat !== p2.player){
+							currentSong.p2Cursors[seat] = diffId
+							if(currentSong.p2Cursor === null){
+								currentSong.p2Cursor = diffId
+							}
+						}
 						if(p2.session && currentSong.courses){
 							this.setSelectedSong(index)
 							this.state.move = 0
 							if(this.state.screen !== "difficulty"){
-								this.toSelectDifficulty({player: response.value.player})
+								this.toSelectDifficulty({player: idDiff.player})
 							}
 							this.search.enabled = false
 							p2InSong = true
@@ -2806,6 +2840,68 @@ class SongSelect{
 		if(!this.search.enabled && !p2InSong){
 			this.search.enabled = true
 		}
+	}
+	getPeerCursorList(song){
+		var list = []
+		if(song && song.p2Cursors){
+			for(var seat in song.p2Cursors){
+				list.push({seat: +seat, diff: song.p2Cursors[seat]})
+			}
+		}
+		return list.sort((a, b) => a.seat - b.seat)
+	}
+	hasPeerOn(song, diffId){
+		var list = this.getPeerCursorList(song)
+		for(var i = 0; i < list.length; i++){
+			if(list[i].diff === diffId){
+				return true
+			}
+		}
+		return false
+	}
+	getSessionSeats(){
+		if(!p2.session){
+			return [1]
+		}
+		return p2.peerSeats().concat([p2.player]).sort((a, b) => a - b)
+	}
+	getSeatName(seat){
+		var fallback = seat % 2 === 0 ? strings.default2PName : strings.defaultName
+		if(p2.session){
+			if(seat === p2.player){
+				return account.loggedIn ? account.displayName : fallback
+			}
+			var peer = p2.getPeer(seat)
+			return (peer && peer.name) || fallback
+		}
+		return account.loggedIn ? account.displayName : fallback
+	}
+	drawSeatNameplate(ctx, seat, x, y, scale, blue, rank){
+		var name = this.getSeatName(seat)
+		ctx.save()
+		ctx.translate(x, y)
+		if(scale !== 1){
+			ctx.scale(scale, scale)
+		}
+		this.nameplateCache.get({
+			ctx: ctx,
+			x: 0,
+			y: 0,
+			w: 273,
+			h: 66,
+			id: "s" + seat + name
+		}, ctx => {
+			this.draw.nameplate({
+				ctx: ctx,
+				x: 3,
+				y: 3,
+				name: name,
+				rank: rank || false,
+				font: this.font,
+				blue: blue
+			})
+		})
+		ctx.restore()
 	}
 	onsongsel(response){
 		if(response && response.value){
@@ -2910,7 +3006,11 @@ class SongSelect{
 		}
 		var ms = Date.now() + (time || 0) * 1000
 		if(!(id in this.playedSounds) || ms > this.playedSounds[id] + 30){
-			assets.sounds[id + (snd ? "_p" + snd : "")].play(time)
+			var bank = snd ? "_p" + (((snd - 1) % 2) + 1) : ""
+			var sound = assets.sounds[id + bank] || assets.sounds[id]
+			if(sound){
+				sound.play(time)
+			}
 			this.playedSounds[id] = ms
 		}
 	}

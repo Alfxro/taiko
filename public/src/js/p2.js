@@ -5,14 +5,76 @@ class P2Connection{
 	init(){
 		this.closed = true
 		this.lastMessages = {}
-		this.otherConnected = false
-		this.name = null
+		this.peers = {}
 		this.player = 1
 		this.allEvents = new Map()
 		this.addEventListener("message", this.message.bind(this))
 		this.currentHash = ""
 		this.disabled = 0
 		pageEvents.add(window, "hashchange", this.onhashchange.bind(this))
+	}
+	peerSeats(){
+		return Object.keys(this.peers).map(Number).sort((a, b) => a - b)
+	}
+	getPeer(seat){
+		return this.peers[seat]
+	}
+	primarySeat(){
+		var seats = this.peerSeats()
+		return seats.length ? seats[0] : null
+	}
+	primaryPeer(){
+		var seat = this.primarySeat()
+		return seat === null ? null : this.peers[seat]
+	}
+	get name(){
+		var peer = this.primaryPeer()
+		return peer ? peer.name : null
+	}
+	get don(){
+		var peer = this.primaryPeer()
+		return peer ? peer.don : null
+	}
+	get results(){
+		var peer = this.primaryPeer()
+		return peer ? peer.results : false
+	}
+	get otherConnected(){
+		return this.peerSeats().length > 0
+	}
+	ensurePeer(seat){
+		if(!this.peers[seat]){
+			this.peers[seat] = this.newPeer()
+		}
+		return this.peers[seat]
+	}
+	newPeer(){
+		return {
+			name: null,
+			don: null,
+			notes: [],
+			drumrollPace: 45,
+			dai: 2,
+			kaAmount: 0,
+			results: false,
+			branch: "normal",
+			branchSet: false
+		}
+	}
+	resetPeers(){
+		for(var seat in this.peers){
+			var peer = this.peers[seat]
+			peer.notes = []
+			peer.drumrollPace = 45
+			peer.dai = 2
+			peer.kaAmount = 0
+			peer.results = false
+			peer.branch = "normal"
+			peer.branchSet = false
+		}
+	}
+	clearPeers(){
+		this.peers = {}
 	}
 	addEventListener(type, callback){
 		var addedType = this.allEvents.get(type)
@@ -58,7 +120,7 @@ class P2Connection{
 	}
 	closeEvent(){
 		this.removeEventListener(onmessage)
-		this.otherConnected = false
+		this.clearPeers()
 		this.session = false
 		if(this.hashLock){
 			this.hash("")
@@ -115,69 +177,81 @@ class P2Connection{
 	message(response){
 		switch(response.type){
 			case "gameload":
-				if("player" in response.value){
-					this.player = response.value.player === 2 ? 2 : 1
+				if(response.value && "player" in response.value){
+					this.player = response.value.player
 				}
 			case "gamestart":
-				this.otherConnected = true
-				this.notes = []
-				this.drumrollPace = 45
-				this.dai = 2
-				this.kaAmount = 0
-				this.results = false
-				this.branch = "normal"
-				scoreStorage.clearP2()
+				this.resetPeers()
+				this.hadResults = false
 				break
 			case "gameend":
-				this.otherConnected = false
+				this.clearPeers()
 				if(this.session){
 					pageEvents.send("session-end")
-				}else if(!this.results){
+				}else if(!this.hadResults){
 					pageEvents.send("p2-game-end")
 				}
+				this.hadResults = false
 				this.session = false
 				if(this.hashLock){
 					this.hash("")
 					this.hashLock = false
 				}
-				this.name = null
-				this.don = null
 				scoreStorage.clearP2()
 				break
+			case "players":
+				this.onplayers(response.value)
+				break
 			case "gameresults":
-				this.results = {}
-				for(var i in response.value){
-					this.results[i] = response.value[i] === null ? null : response.value[i].toString()
+				if(response.value && "player" in response.value){
+					var resultsPeer = this.ensurePeer(response.value.player)
+					resultsPeer.results = {}
+					for(var i in response.value){
+						if(i !== "player"){
+							resultsPeer.results[i] = response.value[i] === null ? null : response.value[i].toString()
+						}
+					}
+					this.hadResults = true
 				}
 				break
 			case "note":
-				this.notes.push(response.value)
-				if(response.value.dai){
-					this.dai = response.value.dai
+				if(response.value && "player" in response.value){
+					var notePeer = this.ensurePeer(response.value.player)
+					var note = {}
+					for(var i in response.value){
+						if(i !== "player"){
+							note[i] = response.value[i]
+						}
+					}
+					notePeer.notes.push(note)
+					if(note.dai){
+						notePeer.dai = note.dai
+					}
 				}
 				break
 			case "drumroll":
-				this.drumrollPace = response.value.pace
-				if("kaAmount" in response.value){
-					this.kaAmount = response.value.kaAmount
+				if(response.value && "player" in response.value){
+					var rollPeer = this.ensurePeer(response.value.player)
+					rollPeer.drumrollPace = response.value.pace
+					if("kaAmount" in response.value){
+						rollPeer.kaAmount = response.value.kaAmount
+					}
 				}
 				break
 			case "branch":
-				this.branch = response.value
-				this.branchSet = false
+				if(response.value && "player" in response.value){
+					var branchPeer = this.ensurePeer(response.value.player)
+					branchPeer.branch = "value" in response.value ? response.value.value : response.value
+					branchPeer.branchSet = false
+				}
 				break
 			case "session":
 				this.clearMessage("users")
-				this.otherConnected = true
 				this.session = true
 				scoreStorage.clearP2()
-				if("player" in response.value){
-					this.player = response.value.player === 2 ? 2 : 1
+				if(response.value && "player" in response.value){
+					this.player = response.value.player
 				}
-				break
-			case "name":
-				this.name = response.value ? (response.value.name || "").toString() : ""
-				this.don = response.value ? (response.value.don) : null
 				break
 			case "getcrowns":
 				if(response.value){
@@ -205,11 +279,39 @@ class P2Connection{
 				break
 			case "crowns":
 				if(response.value){
-					for(var i in response.value){
-						scoreStorage.addP2(i, false, response.value[i], true)
+					var crownsSeat = response.value && "player" in response.value ? response.value.player : null
+					var crownsScores = response.value && response.value.scores ? response.value.scores : response.value
+					for(var i in crownsScores){
+						scoreStorage.addP2(i, false, crownsScores[i], true, null, crownsSeat)
 					}
 				}
 				break
+		}
+	}
+	onplayers(value){
+		if(!Array.isArray(value)){
+			return
+		}
+		var beforeSeats = this.peerSeats()
+		var seen = {}
+		value.forEach(entry => {
+			var seat = entry.player
+			if(typeof seat !== "number" || seat === this.player){
+				return
+			}
+			seen[seat] = true
+			var peer = this.ensurePeer(seat)
+			peer.name = entry.name ? entry.name.toString() : null
+			peer.don = entry.don || null
+		})
+		this.peerSeats().forEach(seat => {
+			if(!seen[seat]){
+				delete this.peers[seat]
+			}
+		})
+		var afterSeats = this.peerSeats()
+		if(afterSeats.length > beforeSeats.length){
+			scoreStorage.resetP2Requests()
 		}
 	}
 	onhashchange(){
@@ -223,38 +325,54 @@ class P2Connection{
 		this.currentHash = string
 		history.replaceState("", "", location.pathname + (string ? "#" + string : ""))
 	}
-	play(circle, mekadon){
-		if(this.otherConnected || this.notes.length > 0){
-			var type = circle.type
-			var drumrollNotes = type === "balloon" || type === "drumroll" || type === "daiDrumroll"
-			
-			if(drumrollNotes && mekadon.getMS() > circle.endTime + mekadon.delay){
-				circle.played(-1, false)
-				mekadon.game.updateCurrentCircle()
+	play(circle, mekadon, seat){
+		var peer = this.peers[seat]
+		if(!peer){
+			if(mekadon.miss(circle)){
+				return
 			}
-			
-			if(drumrollNotes){
-				mekadon.playDrumrollAt(circle, 0, this.drumrollPace, type === "drumroll" || type === "daiDrumroll" ? this.kaAmount : 0)
-			}else if(this.notes.length === 0){
-				mekadon.play(circle)
+			return
+		}
+		var type = circle.type
+		var drumrollNotes = type === "balloon" || type === "drumroll" || type === "daiDrumroll"
+
+		if(drumrollNotes && mekadon.getMS() > circle.endTime + mekadon.delay){
+			circle.played(-1, false)
+			mekadon.game.updateCurrentCircle()
+			return
+		}
+
+		if(drumrollNotes){
+			mekadon.playDrumrollAt(circle, 0, peer.drumrollPace, type === "drumroll" || type === "daiDrumroll" ? peer.kaAmount : 0)
+			return
+		}
+
+		// drop notes belonging to circles this lane already passed (chart mismatch)
+		while(peer.notes.length){
+			var head = peer.notes[0]
+			if(typeof head.at === "number" && head.at < circle.ms - 200){
+				peer.notes.shift()
 			}else{
-				var note = this.notes[0]
-				if(note.score >= 0){
-					var dai = 1
-					if(circle.type === "daiDon" || circle.type === "daiKa"){
-						dai = this.dai
-					}
-					if(mekadon.playAt(circle, note.ms, note.score, dai, note.reverse)){
-						this.notes.shift()
-					}
-				}else{
-					if(mekadon.miss(circle)){
-						this.notes.shift()
-					}
-				}
+				break
 			}
-		}else if(mekadon.miss(circle)){
-			this.notes.shift()
+		}
+		if(peer.notes.length === 0){
+			// wait for the real hit/miss message instead of showing a fake perfect hit
+			return
+		}
+		var note = peer.notes[0]
+		if(note.score >= 0){
+			var dai = 1
+			if(circle.type === "daiDon" || circle.type === "daiKa"){
+				dai = peer.dai
+			}
+			if(mekadon.playAt(circle, note.ms, note.score, dai, note.reverse)){
+				peer.notes.shift()
+			}
+		}else{
+			if(mekadon.miss(circle)){
+				peer.notes.shift()
+			}
 		}
 	}
 	enable(){

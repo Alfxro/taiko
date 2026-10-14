@@ -1155,7 +1155,7 @@
 		ctx.stroke()
 		this.layeredText({
 			ctx: ctx,
-			text: config.two ? "2P" : "1P",
+			text: config.label || (config.two ? "2P" : "1P"),
 			fontSize: 43,
 			fontFamily: config.font,
 			x: textX,

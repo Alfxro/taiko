@@ -5,16 +5,23 @@ class Scoresheet{
 	init(controller, results, multiplayer, touchEnabled){
 		this.controller = controller
 		this.resultsObj = results
-		this.player = [multiplayer ? (p2.player === 1 ? 0 : 1) : 0]
+		var ownSeat = multiplayer ? p2.player : 1
+		this.player = [ownSeat - 1]
 		var player0 = this.player[0]
 		this.results = []
 		this.results[player0] = {}
 		this.rules = []
 		this.rules[player0] = this.controller.game.rules
+		this.seats = [ownSeat]
 		if(multiplayer){
-			this.player.push(p2.player === 2 ? 0 : 1)
-			this.results[this.player[1]] = p2.results
-			this.rules[this.player[1]] = this.controller.syncWith.game.rules
+			controller.mirrors.forEach(mirror => {
+				var seat = mirror.seat
+				var peer = p2.getPeer(seat)
+				this.seats.push(seat)
+				this.results[seat - 1] = peer ? peer.results : false
+				this.rules[seat - 1] = mirror.game.rules
+			})
+			this.seats.sort((a, b) => a - b)
 		}
 		for(var i in results){
 			this.results[player0][i] = results[i] === null ? null : results[i].toString()
@@ -24,6 +31,9 @@ class Scoresheet{
 		
 		this.canvas = document.getElementById("canvas")
 		this.ctx = this.canvas.getContext("2d")
+		// results draw on the main canvas again: un-hide it (lanes are gone by now)
+		this.game = document.getElementById("game")
+		this.game.classList.remove("multiplayer")
 		var resolution = settings.getItem("resolution")
 		var noSmoothing = resolution === "low" || resolution === "lowest"
 		if(noSmoothing){
@@ -32,7 +42,6 @@ class Scoresheet{
 		if(resolution === "lowest"){
 			this.canvas.style.imageRendering = "pixelated"
 		}
-		this.game = document.getElementById("game")
 		
 		this.fadeScreen = document.createElement("div")
 		this.fadeScreen.id = "fade-screen"
@@ -267,8 +276,11 @@ class Scoresheet{
 		var frameTop = winH / 2 - 720 / 2
 		var frameLeft = winW / 2 - 1280 / 2
 		
-		var players = this.multiplayer ? 2 : 1
-		var p2Offset = 298
+		var players = this.multiplayer ? Math.max.apply(null, this.seats) : 1
+		var rowH = Math.min(298, Math.floor(720 / players))
+		var rowScaleY = rowH / 298
+		var rowOffset = p => p * rowH
+		var blueSeat = p => (p + 1) % 2 === 0
 		
 		var bgOffset = 0
 		var elapsed = ms - this.state.screenMS
@@ -351,10 +363,15 @@ class Scoresheet{
 		
 		var rules = this.controller.game.rules
 		var failedOffset = rules.clearReached(this.results[this.player[0]].gauge) ? 0 : -2000
-		if(players === 2 && failedOffset !== 0){
-			var p2results = this.results[this.player[1]]
-			if(p2results && this.controller.syncWith.game.rules.clearReached(p2results.gauge)){
-				failedOffset = 0
+		if(this.multiplayer && failedOffset !== 0){
+			for(var p = 0; p < players; p++){
+				if(p === this.player[0]){
+					continue
+				}
+				var peerResults = this.results[p]
+				if(peerResults && this.rules[p] && this.rules[p].clearReached(peerResults.gauge)){
+					failedOffset = 0
+				}
 			}
 		}
 		if(elapsed >= 3100 + failedOffset){
@@ -362,10 +379,16 @@ class Scoresheet{
 				ctx.save()
 				var results = this.results[p]
 				if(!results){
+					ctx.restore()
 					continue
 				}
 				var clear = this.rules[p].clearReached(results.gauge)
-				if(p === 1 || !this.multiplayer && clear){
+				if(this.multiplayer){
+					ctx.translate(0, rowOffset(p))
+					if(rowScaleY !== 1){
+						ctx.scale(1, rowScaleY)
+					}
+				}else if(clear){
 					ctx.translate(0, 290)
 				}
 				if(clear){
@@ -441,17 +464,21 @@ class Scoresheet{
 					])
 				})
 				
+			ctx.save()
+			for(var p = 0; p < players; p++){
+				var results = this.results[p]
+				if(!results){
+					continue
+				}
 				ctx.save()
-				for(var p = 0; p < players; p++){
-					var results = this.results[p]
-					if(!results){
-						continue
+				if(this.multiplayer){
+					ctx.translate(0, rowOffset(p))
+					if(rowScaleY !== 1){
+						ctx.scale(1, rowScaleY)
 					}
-					if(p === 1){
-						ctx.translate(0, p2Offset)
-					}
-					
-					ctx.drawImage(assets.image["difficulty"],
+				}
+				
+				ctx.drawImage(assets.image["difficulty"],
 						0, 144 * this.difficulty[results.difficulty],
 						168, 143,
 						300, 150, 189, 162
@@ -469,7 +496,7 @@ class Scoresheet{
 					ctx.fillText(text, 395, 308)
 					ctx.miterLimit = 10
 					
-					var defaultName = p === 0 ? strings.defaultName : strings.default2PName
+					var defaultName = p === this.player[0] ? strings.defaultName : strings.default2PName
 					if(p === this.player[0]){
 						var name = account.loggedIn ? account.displayName : defaultName
 					}else{
@@ -489,7 +516,7 @@ class Scoresheet{
 							y: 3,
 							name: name,
 							font: this.font,
-							blue: p === 1
+							blue: blueSeat(p)
 						})
 					})
 					
@@ -507,7 +534,7 @@ class Scoresheet{
 						h: 232,
 						radius: 30,
 					})
-					ctx.fillStyle = p === 1 ? "rgba(195, 228, 229, 0.8)" : "rgba(255, 224, 216, 0.8)"
+					ctx.fillStyle = blueSeat(p) ? "rgba(195, 228, 229, 0.8)" : "rgba(255, 224, 216, 0.8)"
 					ctx.fill()
 					this.draw.roundedRect({
 						ctx: ctx,
@@ -607,6 +634,7 @@ class Scoresheet{
 						{outline: "#000", letterBorder: 8},
 						{fill: "#ffc700"}
 					])
+				ctx.restore()
 				}
 				ctx.restore()
 			})
@@ -642,21 +670,25 @@ class Scoresheet{
 					if(!results){
 						continue
 					}
-					if(p === 1){
-						ctx.translate(0, p2Offset)
+					ctx.save()
+					if(this.multiplayer){
+						ctx.translate(0, rowOffset(p))
+						if(rowScaleY !== 1){
+							ctx.scale(1, rowScaleY)
+						}
 					}
 					var w = 712
 					this.draw.gauge({
 						ctx: ctx,
 						x: 558 + w,
-						y: p === 1 ? 124 : 116,
+						y: blueSeat(p) ? 124 : 116,
 						clear: this.rules[p].gaugeClear,
 						percentage: this.rules[p].gaugePercent(results.gauge),
 						font: this.font,
 						scale: w / 788,
 						scoresheet: true,
-						blue: p === 1,
-						multiplayer: p === 1
+						blue: blueSeat(p),
+						multiplayer: blueSeat(p)
 					})
 					this.draw.soul({
 						ctx: ctx,
@@ -665,6 +697,7 @@ class Scoresheet{
 						scale: 36 / 42,
 						cleared: this.rules[p].clearReached(results.gauge)
 					})
+					ctx.restore()
 				}
 			})
 			ctx.restore()
@@ -691,8 +724,11 @@ class Scoresheet{
 						ctx.save()
 						ctx.scale(ratio, ratio)
 						ctx.translate(frameLeft, frameTop)
-						if(p === 1){
-							ctx.translate(0, p2Offset)
+						if(this.multiplayer){
+							ctx.translate(0, rowOffset(p))
+							if(rowScaleY !== 1){
+								ctx.scale(1, rowScaleY)
+							}
 						}
 						
 						var crownScale = 1
@@ -710,7 +746,7 @@ class Scoresheet{
 						if(this.state.screen === "fadeIn" && elapsed >= 1200 && !this.state["fullcomboPlayed" + p]){
 							this.state["fullcomboPlayed" + p] = true
 							if(crownType === "gold"){
-								this.playSound("v_results_fullcombo" + (p === 1 ? "2" : ""), p)
+								this.playSound("v_results_fullcombo" + (p % 2 === 1 ? "2" : ""), p)
 							}
 						}
 						if(this.state.screen === "fadeIn" && elapsed >= 1650 && !this.state["crownPlayed" + p]){
@@ -779,8 +815,12 @@ class Scoresheet{
 				if(!results){
 					continue
 				}
-				if(p === 1){
-					ctx.translate(0, p2Offset)
+				ctx.save()
+				if(this.multiplayer){
+					ctx.translate(0, rowOffset(p))
+					if(rowScaleY !== 1){
+						ctx.scale(1, rowScaleY)
+					}
 				}
 				ctx.save()
 				
@@ -846,6 +886,7 @@ class Scoresheet{
 					this.state.screen = "scoresShown"
 					this.state.screenMS = this.getMS()
 				}
+				ctx.restore()
 			}
 			ctx.restore()
 		}
@@ -898,7 +939,7 @@ class Scoresheet{
 	}
 	
 	getSound(id, p){
-		return assets.sounds[id + (this.multiplayer ? "_p" + (p + 1) : "")]
+		return assets.sounds[id + (this.multiplayer ? "_p" + ((p % 2) + 1) : "")]
 	}
 	playSound(id, p){
 		this.getSound(id, p).play()

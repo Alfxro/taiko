@@ -157,23 +157,34 @@ class ScoreStorage{
 			}
 		}
 	}
-	getP2(song, difficulty, isHash){
+	p2Seat(seat){
+		if(typeof seat === "number" && seat > 0){
+			return seat
+		}
+		var seats = p2.peerSeats()
+		return seats.length ? seats[0] : 0
+	}
+	getP2(song, difficulty, isHash, seat){
 		if(!song){
 			return this.scoresP2
-		}else{
-			var hash = isHash ? song : this.titleHash(song)
-			if(!(hash in this.scoresP2) && !this.requestP2.has(hash) && !this.requestedP2.has(hash)){
-				this.requestP2.add(hash)
-				this.requestedP2.add(hash)
-			}
-			if(difficulty){
-				if(hash in this.scoresP2){
-					return this.scoresP2[hash][difficulty]
-				}
-			}else{
-				return this.scoresP2[hash]
-			}
 		}
+		seat = this.p2Seat(seat)
+		var hash = isHash ? song : this.titleHash(song)
+		var store = this.scoresP2[seat]
+		if((!store || !(hash in store)) && !this.requestP2.has(hash) && !this.requestedP2.has(hash)){
+			this.requestP2.add(hash)
+			this.requestedP2.add(hash)
+		}
+		if(difficulty){
+			if(store && hash in store){
+				return store[hash][difficulty]
+			}
+		}else{
+			return store ? store[hash] : undefined
+		}
+	}
+	resetP2Requests(){
+		this.requestedP2.clear()
 	}
 	add(song, difficulty, scoreObject, isHash, setTitle, saveFailed){
 		var hash = isHash ? song : this.titleHash(song)
@@ -217,20 +228,21 @@ class ScoreStorage{
 			}).catch(() => this.add(song, difficulty, scoreObject, isHash, setTitle, true))
 		}
 	}
-	addP2(song, difficulty, scoreObject, isHash, setTitle){
+	addP2(song, difficulty, scoreObject, isHash, setTitle, seat){
 		var hash = isHash ? song : this.titleHash(song)
-		if(!(hash in this.scores)){
-			this.scoresP2[hash] = {}
+		seat = this.p2Seat(seat)
+		if(!this.scoresP2[seat]){
+			this.scoresP2[seat] = {}
 		}
 		if(difficulty){
 			if(setTitle){
-				this.scoresP2[hash].title = setTitle
+				this.scoresP2[seat][hash].title = setTitle
 			}
-			this.scoresP2[hash][difficulty] = scoreObject
+			this.scoresP2[seat][hash][difficulty] = scoreObject
 		}else{
-			this.scoresP2[hash] = scoreObject
+			this.scoresP2[seat][hash] = scoreObject
 			if(setTitle){
-				this.scoresP2[hash].title = setTitle
+				this.scoresP2[seat][hash].title = setTitle
 			}
 		}
 	}

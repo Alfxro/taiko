@@ -6,14 +6,30 @@
 		this.controller = controller
 		this.baisoku = baisoku
 		
-		this.canvas = document.getElementById("canvas")
+		this.multiplayer = this.controller.multiplayer
+		this.player = this.controller.seat || 1
+		this.seatBlue = this.player % 2 === 0
+		this.laneCount = 1
+		this.laneIndex = 0
+		if(this.multiplayer){
+			// one canvas per player, stacked vertically in seat order
+			var allSeats = p2.peerSeats().concat([p2.player]).sort((a, b) => a - b)
+			this.laneCount = Math.max(1, allSeats.length)
+			this.laneIndex = Math.max(0, allSeats.indexOf(this.player))
+			this.canvas = document.createElement("canvas")
+			this.canvas.className = "lane-canvas"
+			var refCanvas = document.getElementById("canvas")
+			refCanvas.parentNode.insertBefore(this.canvas, refCanvas)
+		}else{
+			this.canvas = document.getElementById("canvas")
+		}
 		this.ctx = this.canvas.getContext("2d")
+		this.isLocal = !this.multiplayer || this.multiplayer === 1
 		var resolution = settings.getItem("resolution")
 		var noSmoothing = resolution === "low" || resolution === "lowest"
 		if(noSmoothing){
 			this.ctx.imageSmoothingEnabled = false
 		}
-		this.multiplayer = this.controller.multiplayer
 		if(this.multiplayer !== 2 && resolution === "lowest"){
 			document.getElementById("game").classList.add("pixelated")
 		}
@@ -99,12 +115,6 @@
 		this.branchCache = new CanvasCache(noSmoothing)
 		this.nameplateCache = new CanvasCache(noSmoothing)
 		
-		if(this.multiplayer === 2){
-			this.player = p2.player === 2 ? 1 : 2
-		}else{
-			this.player = this.controller.multiplayer ? p2.player : 1
-		}
-		
 		this.touchEnabled = this.controller.touchEnabled
 		this.touch = -Infinity
 		this.touchAnimation = settings.getItem("touchAnimation")
@@ -151,12 +161,14 @@
 	run(){
 		if(this.multiplayer !== 2){
 			this.setBackground()
+			this.setDonBg()
 		}
-		this.setDonBg()
 		
 		this.startTime = this.controller.game.getAccurateTime()
 		this.lastMousemove = this.startTime
-		pageEvents.mouseAdd(this, this.onmousemove.bind(this))
+		if(!this.multiplayer){
+			pageEvents.mouseAdd(this, this.onmousemove.bind(this))
+		}
 		
 		this.refresh()
 	}
@@ -166,7 +178,7 @@
 		var winW = innerWidth
 		var winH = lastHeight
 		
-		if(winW / 32 > winH / 9){
+		if(!this.multiplayer && winW / 32 > winH / 9){
 			winW = winH / 9 * 32
 		}
 		
@@ -182,52 +194,95 @@
 		}else if(resolution === "lowest"){
 			this.pixelRatio *= 0.25
 		}
-		winW *= this.pixelRatio
-		winH *= this.pixelRatio
-		if(this.portrait){
-			var ratioX = winW / 720
-			var ratioY = winH / 1280
-		}else{
-			var ratioX = winW / 1280
-			var ratioY = winH / 720
-		}
-		var ratio = (ratioX < ratioY ? ratioX : ratioY)
 		
 		var resized = false
-		if(this.winW !== winW || this.winH !== winH){
-			this.winW = winW
-			this.winH = winH
-			this.ratio = ratio
-			
-			if(this.player !== 2){
+		if(this.multiplayer){
+			// Lane strip: full width, 1/laneCount of the window height, stacked by seat order.
+			// Uniform scale keeps classic proportions (round notes, correct bar ratio);
+			// the playfield fills ~75% of the strip width, centered on the note bar.
+			var designW = this.portrait ? 720 : 1280
+			var designH = this.portrait ? 1280 : 720
+			var barCenter = this.portrait ? 375 : 257
+			var cssW = Math.max(1, winW)
+			var cssH = Math.max(1, Math.floor(winH / this.laneCount))
+			var canvasW = Math.max(1, Math.floor(cssW * this.pixelRatio))
+			var canvasH = Math.max(1, Math.floor(cssH * this.pixelRatio))
+			var scale = (canvasW * 0.75) / designW
+			var cropH = Math.min(designH, canvasH / scale)
+			var cropY = Math.max(0, Math.min(designH - cropH, barCenter - cropH / 2))
+			if(this.winW !== canvasW || this.winH !== canvasH){
+				this.winW = canvasW
+				this.winH = canvasH
+				this.ratio = scale
+				this.ratioX = scale
+				this.ratioY = scale
+				this.canvas.width = canvasW
+				this.canvas.height = canvasH
+				ctx.setTransform(scale, 0, 0, scale, (canvasW - designW * scale) / 2, -cropY * scale)
+				this.canvas.style.width = cssW + "px"
+				this.canvas.style.height = cssH + "px"
+				this.canvas.style.top = (cssH * this.laneIndex) + "px"
+				this.titleCache.resize(640, 90, scale)
+				if(this.portrait){
+					this.nameplateCache.resize(220, 54, scale + 0.2)
+				}else{
+					this.nameplateCache.resize(274, 67, scale + 0.2)
+				}
+				this.fillComboCache()
+				this.setDonBgHeight()
+				if(this.controller.lyrics){
+					this.controller.lyrics.setScale(scale / this.pixelRatio)
+				}
+				resized = true
+			}
+		}else{
+			winW *= this.pixelRatio
+			winH *= this.pixelRatio
+			var ratioX = winW / (this.portrait ? 720 : 1280)
+			var ratioY = winH / (this.portrait ? 1280 : 720)
+			var ratio = (ratioX < ratioY ? ratioX : ratioY)
+			if(this.winW !== winW || this.winH !== winH){
+				this.winW = winW
+				this.winH = winH
+				this.ratio = ratio
+				this.ratioX = ratio
+				this.ratioY = ratio
 				this.canvas.width = Math.max(1, winW)
 				this.canvas.height = Math.max(1, winH)
 				ctx.scale(ratio, ratio)
 				this.canvas.style.width = (winW / this.pixelRatio) + "px"
 				this.canvas.style.height = (winH / this.pixelRatio) + "px"
 				this.titleCache.resize(640, 90, ratio)
-			}
-			if(!this.multiplayer){
 				this.pauseCache.resize(81 * this.pauseOptions.length * 2, 464, ratio)
+				if(this.portrait){
+					this.nameplateCache.resize(220, 54, ratio + 0.2)
+				}else{
+					this.nameplateCache.resize(274, 67, ratio + 0.2)
+				}
+				this.fillComboCache()
+				this.setDonBgHeight()
+				if(this.controller.lyrics){
+					this.controller.lyrics.setScale(ratio / this.pixelRatio)
+				}
+				resized = true
 			}
-			if(this.portrait){
-				this.nameplateCache.resize(220, 54, ratio + 0.2)
-			}else{
-				this.nameplateCache.resize(274, 67, ratio + 0.2)
-			}
-			this.fillComboCache()
-			this.setDonBgHeight()
-			if(this.controller.lyrics){
-				this.controller.lyrics.setScale(ratio / this.pixelRatio)
-			}
-			resized = true
-		}else if(this.controller.game.paused && !document.hasFocus()){
-			return
-		}else if(this.player !== 2){
-			ctx.clearRect(0, 0, winW / ratio, winH / ratio)
 		}
-		winW /= ratio
-		winH /= ratio
+		if(!resized){
+			if(this.controller.game.paused && !document.hasFocus()){
+				return
+			}
+			if(this.multiplayer){
+				ctx.save()
+				ctx.setTransform(1, 0, 0, 1, 0, 0)
+				ctx.clearRect(0, 0, this.winW, this.winH)
+				ctx.restore()
+			}else{
+				ctx.clearRect(0, 0, this.winW / this.ratioX, this.winH / this.ratioY)
+			}
+		}
+		// multiplayer lanes keep the full design space (cropped/scaled by the lane transform)
+		var winW = this.multiplayer ? (this.portrait ? 720 : 1280) : this.winW / this.ratioX
+		var winH = this.multiplayer ? (this.portrait ? 1280 : 720) : this.winH / this.ratioY
 		if(!this.controller.game.paused){
 			this.ms = this.controller.game.getAccurateTime()
 		}
@@ -239,9 +294,6 @@
 		}else{
 			var frameTop = winH / 2 - 720 / 2
 			var frameLeft = winW / 2 - 1280 / 2
-		}
-		if(this.player === 2){
-			frameTop += 165
 		}
 		if(touchMultiplayer){
 			if(!this.touchp2Class){
@@ -258,14 +310,11 @@
 		
 		ctx.save()
 		ctx.translate(0, frameTop)
-		
+
 		this.drawGogoTime()
+		this.assets.drawAssets("background")
 		
-		if(!touchMultiplayer || this.player === 1 && frameTop >= 0){
-			this.assets.drawAssets("background")
-		}
-		
-		if(this.player !== 2){
+		if(this.isLocal && (!this.multiplayer || touchMultiplayer)){
 			this.titleCache.get({
 				ctx: ctx,
 				x: winW - (touchMultiplayer && fullScreenSupported ? 750 : 650),
@@ -273,64 +322,13 @@
 				w: 640,
 				h: 90,
 				id: "title"
-			}, ctx => {
-				var selectedSong = this.controller.selectedSong
-				
-				this.draw.layeredText({
-					ctx: ctx,
-					text: selectedSong.title,
-					fontSize: 40,
-					fontFamily: this.font,
-					x: 620,
-					y: 20,
-					width: 600,
-					align: "right"
-				}, [
-					{outline: "#000", letterBorder: 10},
-					{fill: "#fff"}
-				])
-				
-				if(selectedSong.category){
-					var _w = 142
-					var _h = 22
-					var _x = 628 - _w
-					var _y = 88 - _h
-
-					let category = assets.categories.find(cat=>cat.id == selectedSong.category_id)
-					if(category != null && category.songSkin != null && category.songSkin.infoFill != null){
-						ctx.fillStyle = category.songSkin.infoFill
-					}else{
-						ctx.fillStyle = assets.categories.find(cat=>cat.title == 'default').songSkin.infoFill
-					}
-					this.draw.roundedRect({
-						ctx: ctx,
-						x: _x, y: _y,
-						w: _w, h: _h,
-						radius: 11
-					})
-					ctx.fill()
-					
-					this.draw.layeredText({
-						ctx: ctx,
-						text: selectedSong.category,
-						fontSize: 15,
-						fontFamily: this.font,
-						align: "center",
-						baseline: "middle",
-						x: _x + _w / 2,
-						y: _y + _h / 2,
-						width: 122
-					}, [
-						{fill: "#fff"}
-					])
-				}
-			})
+			}, ctx => this.drawTitle(ctx))
 		}
 		
 		var score = this.controller.getGlobalScore()
 		var gaugePercent = this.rules.gaugePercent(score.gauge)
 		
-		if(this.player === 2){
+		if(this.seatBlue){
 			var scoreImg = "bg_score_p2"
 			var scoreFill = "#6bbec0"
 		}else{
@@ -353,86 +351,67 @@
 				size: 100,
 				paddingLeft: 0
 			}
-			this.scorePos = {x: 363, y: frameTop + (this.player === 2 ? 520 : 227)}
+			this.scorePos = {x: 363, y: frameTop + 227}
 			
 			var animPos = {
 				x1: this.slotPos.x + 13,
-				y1: this.slotPos.y + (this.player === 2 ? 27 : -27),
+				y1: this.slotPos.y - 27,
 				x2: winW - 38,
-				y2: frameTop + (this.player === 2 ? 484 : 293)
+				y2: frameTop + 293
 			}
 			var taikoPos = {
 				x: 19,
-				y: frameTop + (this.player === 2 ? 464 : 184),
+				y: frameTop + 184,
 				w: 111,
 				h: 130
 			}
 			
-			this.nameplateCache.get({
-				ctx: ctx,
-				x: 167,
-				y: this.player === 2 ? 565 : 160,
-				w: 219,
-				h: 53,
-				id: "1p",
-			}, ctx => {
-				var defaultName = this.player === 1 ? strings.defaultName : strings.default2PName
-				if(this.multiplayer === 2){
-					var name = p2.name || defaultName
-				}else{
-					var name = account.loggedIn ? account.displayName : defaultName
-				}
-				this.draw.nameplate({
+			if(!this.multiplayer || touchMultiplayer){
+				this.nameplateCache.get({
 					ctx: ctx,
-					x: 3,
-					y: 3,
-					scale: 0.8,
-					name: name,
-					font: this.font,
-					blue: this.player === 2
+					x: 167,
+					y: 160,
+					w: 219,
+					h: 53,
+					id: "1p",
+				}, ctx => {
+					var name = this.getSeatName()
+					this.draw.nameplate({
+						ctx: ctx,
+						x: 3,
+						y: 3,
+						scale: 0.8,
+						name: name,
+						font: this.font,
+						blue: this.seatBlue
+					})
 				})
-			})
+			}
 			
 			ctx.fillStyle = "#000"
 			ctx.fillRect(
 				0,
-				this.player === 2 ? 306 : 288,
+				288,
 				winW,
-				this.player === 1 ? 184 : 183
+				184
 			)
 			ctx.beginPath()
-			if(this.player === 2){
-				ctx.moveTo(0, 467)
-				ctx.lineTo(384, 467)
-				ctx.lineTo(384, 512)
-				ctx.lineTo(184, 560)
-				ctx.lineTo(0, 560)
-			}else{
-				ctx.moveTo(0, 217)
-				ctx.lineTo(184, 217)
-				ctx.lineTo(384, 265)
-				ctx.lineTo(384, 309)
-				ctx.lineTo(0, 309)
-			}
+			ctx.moveTo(0, 217)
+			ctx.lineTo(184, 217)
+			ctx.lineTo(384, 265)
+			ctx.lineTo(384, 309)
+			ctx.lineTo(0, 309)
 			ctx.fill()
 			
 			// Left side
 			ctx.fillStyle = scoreFill
 			var leftSide = (ctx, mul) => {
 				ctx.beginPath()
-				if(this.player === 2){
-					ctx.moveTo(0, 468 * mul)
-					ctx.lineTo(380 * mul, 468 * mul)
-					ctx.lineTo(380 * mul, 512 * mul)
-					ctx.lineTo(184 * mul, 556 * mul)
-					ctx.lineTo(0, 556 * mul)
-				}else{
-					ctx.moveTo(0, 221 * mul)
-					ctx.lineTo(184 * mul, 221 * mul)
-					ctx.lineTo(380 * mul, 265 * mul)
-					ctx.lineTo(380 * mul, 309 * mul)
-					ctx.lineTo(0, 309 * mul)
-				}
+				ctx.moveTo(0, 221 * mul)
+				ctx.lineTo(184 * mul, 221 * mul)
+				ctx.lineTo(380 * mul, 265 * mul)
+				ctx.lineTo(380 * mul, 309 * mul)
+				ctx.lineTo(0, 309 * mul)
 			}
 			leftSide(ctx, 1)
 			ctx.fill()
@@ -450,17 +429,10 @@
 			// Score background
 			ctx.fillStyle = "#000"
 			ctx.beginPath()
-			if(this.player === 2){
-				this.draw.roundedCorner(ctx, 184, 512, 20, 0)
-				ctx.lineTo(384, 512)
-				this.draw.roundedCorner(ctx, 384, 560, 12, 2)
-				ctx.lineTo(184, 560)
-			}else{
-				ctx.moveTo(184, 217)
-				this.draw.roundedCorner(ctx, 384, 217, 12, 1)
-				ctx.lineTo(384, 265)
-				this.draw.roundedCorner(ctx, 184, 265, 20, 3)
-			}
+			ctx.moveTo(184, 217)
+			this.draw.roundedCorner(ctx, 384, 217, 12, 1)
+			ctx.lineTo(384, 265)
+			this.draw.roundedCorner(ctx, 184, 265, 20, 3)
 			ctx.fill()
 			
 			// Difficulty
@@ -468,7 +440,7 @@
 				ctx.drawImage(assets.image["difficulty"],
 					0, 144 * this.difficulty[this.controller.selectedSong.difficulty],
 					168, 143,
-					126, this.player === 2 ? 497 : 228,
+					126, 228,
 					62, 53
 				)
 			}
@@ -477,7 +449,7 @@
 			if(this.controller.autoPlayEnabled && !this.multiplayer){
 				this.ctx.drawImage(assets.image["badge_auto"],
 					183,
-					this.player === 2 ? 490 : 265,
+					265,
 					23,
 					23
 				)
@@ -487,33 +459,26 @@
 			ctx.fillStyle = "#000"
 			ctx.beginPath()
 			var gaugeX = winW - 788 * 0.7 - 32
-			if(this.player === 2){
-				ctx.moveTo(gaugeX, 464)
-				ctx.lineTo(winW, 464)
-				ctx.lineTo(winW, 489)
-				this.draw.roundedCorner(ctx, gaugeX, 489, 12, 3)
-			}else{
-				this.draw.roundedCorner(ctx, gaugeX, 288, 12, 0)
-				ctx.lineTo(winW, 288)
-				ctx.lineTo(winW, 314)
-				ctx.lineTo(gaugeX, 314)
-			}
+			this.draw.roundedCorner(ctx, gaugeX, 288, 12, 0)
+			ctx.lineTo(winW, 288)
+			ctx.lineTo(winW, 314)
+			ctx.lineTo(gaugeX, 314)
 			ctx.fill()
 			this.draw.gauge({
 				ctx: ctx,
 				x: winW,
-				y: this.player === 2 ? 468 : 273,
+				y: 273,
 				clear: this.rules.gaugeClear,
 				percentage: gaugePercent,
 				font: this.font,
 				scale: 0.7,
-				multiplayer: this.player === 2,
-				blue: this.player === 2
+				multiplayer: false,
+				blue: this.seatBlue
 			})
 			this.draw.soul({
 				ctx: ctx,
 				x: winW - 40,
-				y: this.player === 2 ? 484 : 293,
+				y: 293,
 				scale: 0.75,
 				cleared: this.rules.clearReached(score.gauge)
 			})
@@ -541,77 +506,67 @@
 			}
 			this.scorePos = {
 				x: 155,
-				y: frameTop + (this.player === 2 ? 318 : 193)
+				y: frameTop + 193
 			}
 			
 			var animPos = {
 				x1: this.slotPos.x + 14,
-				y1: this.slotPos.y + (this.player === 2 ? 29 : -29),
+				y1: this.slotPos.y - 29,
 				x2: winW - 55,
-				y2: frameTop + (this.player === 2 ? 378 : 165)
+				y2: frameTop + 165
 			}
 			var taikoPos = {x: 179, y: frameTop + 190, w: 138, h: 162}
 			
-			this.nameplateCache.get({
-				ctx: ctx,
-				x: touchMultiplayer ? 47 : 320,
-				y: touchMultiplayer ? (this.player === 2 ? 361 : 119) : (this.player === 2 ? 460 : 20),
-				w: 273,
-				h: 66,
-				id: "1p",
-			}, ctx => {
-				var defaultName = this.player === 1 ? strings.defaultName : strings.default2PName
-				if(this.multiplayer === 2){
-					var name = p2.name || defaultName
-				}else{
-					var name = account.loggedIn ? account.displayName : defaultName
-				}
-				this.draw.nameplate({
+			if(!this.multiplayer || touchMultiplayer){
+				this.nameplateCache.get({
 					ctx: ctx,
-					x: 3,
-					y: 3,
-					name: name,
-					font: this.font,
-					blue: this.player === 2
+					x: touchMultiplayer ? 47 : 320,
+					y: touchMultiplayer ? 119 : 20,
+					w: 273,
+					h: 66,
+					id: "1p",
+				}, ctx => {
+					var name = this.getSeatName()
+					this.draw.nameplate({
+						ctx: ctx,
+						x: 3,
+						y: 3,
+						name: name,
+						font: this.font,
+						blue: this.seatBlue
+					})
 				})
-			})
+			}
 			
 			ctx.fillStyle = "#000"
 			ctx.fillRect(
 				0,
 				184,
 				winW,
-				this.multiplayer && this.player === 1 ? 177 : 176
+				176
 			)
 			ctx.beginPath()
-			if(this.player === 2){
-				ctx.moveTo(328, 351)
-				ctx.lineTo(winW, 351)
-				ctx.lineTo(winW, 385)
-				this.draw.roundedCorner(ctx, 328, 385, 10, 3)
-			}else{
-				ctx.moveTo(328, 192)
-				this.draw.roundedCorner(ctx, 328, 158, 10, 0)
-				ctx.lineTo(winW, 158)
-				ctx.lineTo(winW, 192)
-			}
+			ctx.moveTo(328, 192)
+			this.draw.roundedCorner(ctx, 328, 158, 10, 0)
+			ctx.lineTo(winW, 158)
+			ctx.lineTo(winW, 192)
 			ctx.fill()
 			
 			// Gauge
 			this.draw.gauge({
 				ctx: ctx,
 				x: winW,
-				y: this.player === 2 ? 357 : 135,
+				y: 135,
 				clear: this.rules.gaugeClear,
 				percentage: gaugePercent,
 				font: this.font,
-				multiplayer: this.player === 2,
-				blue: this.player === 2
+				multiplayer: false,
+				blue: this.seatBlue
 			})
 			this.draw.soul({
 				ctx: ctx,
 				x: winW - 57,
-				y: this.player === 2 ? 378 : 165,
+				y: 165,
 				cleared: this.rules.clearReached(score.gauge)
 			})
 			
@@ -643,7 +598,7 @@
 				ctx.drawImage(assets.image["difficulty"],
 					0, 144 * this.difficulty[this.controller.selectedSong.difficulty],
 					168, 143,
-					16, this.player === 2 ? 194 : 232,
+					16, 232,
 					141, 120
 				)
 				var diff = this.controller.selectedSong.difficulty
@@ -655,8 +610,8 @@
 				ctx.fillStyle = "#fff"
 				ctx.lineWidth = 7
 				ctx.miterLimit = 1
-				ctx.strokeText(text, 87, this.player === 2 ? 310 : 348)
-				ctx.fillText(text, 87, this.player === 2 ? 310 : 348)
+				ctx.strokeText(text, 87, 348)
+				ctx.fillText(text, 87, 348)
 				ctx.miterLimit = 10
 			}
 			
@@ -670,21 +625,18 @@
 			// Score background
 			ctx.fillStyle = "#000"
 			ctx.beginPath()
-			if(this.player === 2){
-				ctx.moveTo(0, 312)
-				this.draw.roundedCorner(ctx, 176, 312, 20, 1)
-				ctx.lineTo(176, 353)
-				ctx.lineTo(0, 353)
-			}else{
-				ctx.moveTo(0, 191)
-				ctx.lineTo(176, 191)
-				this.draw.roundedCorner(ctx, 176, 232, 20, 2)
-				ctx.lineTo(0, 232)
-			}
+			ctx.moveTo(0, 191)
+			ctx.lineTo(176, 191)
+			this.draw.roundedCorner(ctx, 176, 232, 20, 2)
+			ctx.lineTo(0, 232)
 			ctx.fill()
 		}
 		
 		ctx.restore()
+		
+		if(this.multiplayer && !touchMultiplayer){
+			this.drawLaneOverlay()
+		}
 		
 		animPos.w = animPos.x2 - animPos.x1
 		animPos.h = animPos.y1 - animPos.y2
@@ -695,18 +647,18 @@
 		}, {
 			// 560, 10
 			x: animPos.x1 + animPos.w / 6,
-			y: animPos.y1 - animPos.h * (this.player === 2 ? 2.5 : 3.5)
+			y: animPos.y1 - animPos.h * 3.5
 		}, {
 			// 940, -150
 			x: animPos.x2 - animPos.w / 3,
-			y: animPos.y2 - animPos.h * (this.player === 2 ? 3.5 : 5)
+			y: animPos.y2 - animPos.h * 5
 		}, {
 			// 1225, 165
 			x: animPos.x2,
 			y: animPos.y2
 		}]
 		
-		var touchTop = frameTop + (touchMultiplayer ? 135 : 0) + (this.player === 2 ? -165 : 0)
+		var touchTop = frameTop + (touchMultiplayer ? 135 : 0)
 		this.touchDrum = (() => {
 			var sw = 842
 			var sh = 340
@@ -1409,18 +1361,119 @@
 			this.setBgImage(this.songStage, assets.image[prefix + "bg_stage_" + songSkinName].src)
 		}
 	}
+	getSeatName(){
+		var fallback = this.seatBlue ? strings.default2PName : strings.defaultName
+		if(this.multiplayer){
+			if(this.player === p2.player){
+				return account.loggedIn ? account.displayName : fallback
+			}
+			var peer = p2.getPeer(this.player)
+			return (peer && peer.name) || fallback
+		}
+		return account.loggedIn ? account.displayName : fallback
+	}
+	drawTitle(ctx){
+		var selectedSong = this.controller.selectedSong
+		
+		this.draw.layeredText({
+			ctx: ctx,
+			text: selectedSong.title,
+			fontSize: 40,
+			fontFamily: this.font,
+			x: 620,
+			y: 20,
+			width: 600,
+			align: "right"
+		}, [
+			{outline: "#000", letterBorder: 10},
+			{fill: "#fff"}
+		])
+		
+		if(selectedSong.category){
+			var _w = 142
+			var _h = 22
+			var _x = 628 - _w
+			var _y = 88 - _h
+
+			let category = assets.categories.find(cat=>cat.id == selectedSong.category_id)
+			if(category != null && category.songSkin != null && category.songSkin.infoFill != null){
+				ctx.fillStyle = category.songSkin.infoFill
+			}else{
+				ctx.fillStyle = assets.categories.find(cat=>cat.title == 'default').songSkin.infoFill
+			}
+			this.draw.roundedRect({
+				ctx: ctx,
+				x: _x, y: _y,
+				w: _w, h: _h,
+				radius: 11
+			})
+			ctx.fill()
+			
+			this.draw.layeredText({
+				ctx: ctx,
+				text: selectedSong.category,
+				fontSize: 15,
+				fontFamily: this.font,
+				align: "center",
+				baseline: "middle",
+				x: _x + _w / 2,
+				y: _y + _h / 2,
+				width: 122
+			}, [
+				{fill: "#fff"}
+			])
+		}
+	}
+	drawLaneOverlay(){
+		// Nameplate and song title are drawn unscaled at the strip corners so they
+		// stay readable and aren't cut off by the lane crop.
+		var ctx = this.ctx
+		var pr = this.pixelRatio
+		ctx.save()
+		ctx.setTransform(1, 0, 0, 1, 0, 0)
+		var plateH = Math.max(Math.round(30 * pr), Math.min(Math.round(72 * pr), Math.round(this.winH * 0.2)))
+		var plateW = this.portrait ? Math.round(plateH * 220 / 54) : Math.round(plateH * 274 / 67)
+		this.nameplateCache.get({
+			ctx: ctx,
+			x: Math.round(8 * pr),
+			y: Math.round(6 * pr),
+			w: plateW,
+			h: plateH,
+			id: "nameplate"
+		}, ctx => {
+			this.draw.nameplate({
+				ctx: ctx,
+				x: 3,
+				y: 3,
+				scale: this.portrait ? 0.8 : 1,
+				name: this.getSeatName(),
+				font: this.font,
+				blue: this.seatBlue
+			})
+		})
+		if(this.isLocal){
+			var titleW = Math.max(200, Math.min(Math.round(this.winW * 0.26), Math.round(480 * pr)))
+			var titleH = Math.round(titleW * 90 / 640)
+			this.titleCache.get({
+				ctx: ctx,
+				x: this.winW - titleW - Math.round(8 * pr),
+				y: Math.round(6 * pr),
+				w: titleW,
+				h: titleH,
+				id: "title"
+			}, ctx => this.drawTitle(ctx))
+		}
+		ctx.restore()
+	}
 	setDonBg(){
 		var selectedSong = this.controller.selectedSong
 		var songSkinName = selectedSong.songSkin.name
 		var donLayers = []
-		var filename = !selectedSong.songSkin.don && this.player === 2 ? "bg_don2_" : "bg_don_"
+		var filename = "bg_don_"
 		var prefix = ""
 		
 		this.donBg = document.createElement("div")
 		this.donBg.classList.add("donbg")
-		if(this.player === 2){
-			this.donBg.classList.add("donbg-bottom")
-		}
 		for(var layer = 1; layer <= 3; layer++){
 			var donLayer = document.createElement("div")
 			donLayer.classList.add("donlayer" + layer)
@@ -1460,6 +1513,9 @@
 		this.donBg.style.setProperty("--sh2", assets.image[prefix + asset2].height)
 	}
 	setDonBgHeight(){
+		if(!this.donBg){
+			return
+		}
 		this.donBg.style.setProperty("--h", getComputedStyle(this.donBg).height)
 		var gameDiv = this.gameDiv
 		gameDiv.classList.add("fix-animations")
@@ -1970,6 +2026,9 @@
 		}
 	}
 	setDarkBg(miss){
+		if(!this.donBg){
+			return
+		}
 		if(!miss && this.darkDonBg){
 			this.darkDonBg = false
 			this.donBg.classList.remove("donbg-dark")
@@ -2228,6 +2287,12 @@
 		
 		versionDiv.classList.remove("version-hide")
 		loader.screen.parentNode.appendChild(versionDiv)
+		if(this.multiplayer){
+			var laneCanvas = this.canvas
+			if(laneCanvas && laneCanvas.parentNode){
+				laneCanvas.parentNode.removeChild(laneCanvas)
+			}
+		}
 		if(this.multiplayer !== 2){
 			if(this.touchEnabled){
 				pageEvents.remove(this.canvas, "touchstart")
@@ -2240,8 +2305,10 @@
 				delete this.touchPauseBtn
 			}
 		}
-		if(!this.multiplayer){
-			pageEvents.remove(this.canvas, "mousedown")
+		if(this.isLocal){
+			if(!this.multiplayer){
+				pageEvents.remove(this.canvas, "mousedown")
+			}
 			this.songBg.parentNode.removeChild(this.songBg)
 			this.songStage.parentNode.removeChild(this.songStage)
 			this.donBg.parentNode.removeChild(this.donBg)

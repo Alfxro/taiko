@@ -1,0 +1,74 @@
+//TJADB Project
+TITLE:ロッカー 1
+SUBTITLE:--つんく♂/リズム天国ゴールド
+BPM:148
+WAVE:ロッカー 1.ogg
+OFFSET:-0.814
+DEMOSTART:52.702
+BGMOVIE:Rockers 1.mp4
+MAKER:Meowgister
+
+COURSE:Oni
+LEVEL:1
+BALLOON:
+SCOREINIT:
+SCOREDIFF:
+NOTESDESIGNER3:Meowgister
+
+
+#START
+
+
+#SCROLL 1000
+#LYRIC Ka = Strum
+,
+,
+,
+,
+,
+0
+#LYRIC 
+000,
+,
+,
+2,
+,
+,
+,
+2,
+20020000,
+,
+,
+2,
+20020000,
+,
+,
+2,
+20020000,
+,
+,
+2,
+20020020,
+,
+,
+2,
+2,
+20020020,
+2,
+,
+,
+20020000,
+20020000,
+,
+,
+20020000,
+20020000,
+20020020,
+2,
+,
+,
+20020020,
+
+
+#END
+

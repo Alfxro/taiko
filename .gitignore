@@ -11,8 +11,3 @@
 # Local vendored copy; `nkf` is provided by pip (requirements.txt)
 /nkf.py
 
-# Extra genre backgrounds generated locally
-public/assets/img/bg_genre_1[0-9][0-9].png
-
-# User-uploaded songs, not part of the repo
-/public/songs/
